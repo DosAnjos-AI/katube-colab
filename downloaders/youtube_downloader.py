@@ -283,6 +283,38 @@ class YouTubeDownloader:
         except subprocess.CalledProcessError:
             return []
     
+    def _extract_metadata(self, url: str) -> Optional[Dict]:
+        """
+        Extrai metadados do video usando yt-dlp
+        
+        Args:
+            url: URL do video
+            
+        Returns:
+            Dict com metadados ou None se falhar
+        """
+        cmd = [
+            'yt-dlp',
+            '--dump-json',
+            '--no-warnings',
+            url
+        ]
+        
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            metadata = json.loads(result.stdout)
+            
+            return {
+                'id': metadata.get('id'),
+                'title': metadata.get('title', 'Unknown'),
+                'duration': metadata.get('duration', 0),
+                'uploader': metadata.get('uploader', 'Unknown'),
+                'upload_date': metadata.get('upload_date', '')
+            }
+        except Exception as e:
+            print(f"Aviso: Nao foi possivel extrair metadados: {e}")
+            return None
+    
     def _build_ytdlp_command(self, url: str, output_path: Path, video_id: str) -> List[str]:
         """
         Constrói comando yt-dlp
