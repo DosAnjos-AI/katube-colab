@@ -16,6 +16,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from config import Config
 from utils import ensure_path_exists, get_date_string, format_size
+from downloaders.database_manager import DatabaseManager
 
 
 class DriveManager:

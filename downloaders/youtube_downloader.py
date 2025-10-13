@@ -25,8 +25,11 @@ from utils import (
     read_urls_from_file,
     get_next_txt_id,
     print_header,
-    print_progress
+    print_progress,
+    format_duration,
+    format_size
 )
+from downloaders.database_manager import DatabaseManager
 
 
 class YouTubeDownloader:
