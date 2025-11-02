@@ -2,17 +2,17 @@
 
 Sistema modular para download de áudio do YouTube com persistência no Google Drive.
 
-## ✨ Características
+##  Características
 
-- ✅ Download de áudio em alta qualidade (FLAC padrão)
-- ✅ Suporte para vídeos individuais, playlists, canais e arquivos txt
-- ✅ Persistência automática no Google Drive
-- ✅ Estrutura de pastas organizada
-- ✅ Detecção de duplicatas
-- ✅ Delays anti-bloqueio
-- ✅ Logs automáticos
+-  Download de áudio em alta qualidade (FLAC padrão)
+-  Suporte para vídeos individuais, playlists, canais e arquivos txt
+-  Persistência automática no Google Drive
+-  Estrutura de pastas organizada
+-  Detecção de duplicatas
+-  Delays anti-bloqueio
+-  Logs automáticos
 
-## 📁 Estrutura no Drive
+##  Estrutura no Drive
 
 ```
 MyDrive/Katube_Download/
@@ -29,7 +29,7 @@ MyDrive/Katube_Download/
     └── errors_2025-01-15.log
 ```
 
-## 🚀 Uso no Google Colab
+##  Uso no Google Colab
 
 ### 1. Clone o repositório
 
