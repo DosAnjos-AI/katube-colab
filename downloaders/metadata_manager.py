@@ -7,8 +7,9 @@ Gerenciamento de metadados completos em CSV consolidado
 
 import os
 import sys
+import csv
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from datetime import datetime
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -44,6 +45,67 @@ class MetadataManager:
 
         self.config = config or Config()
         self.csv_path = self.config.get_metadata_csv_path()
+
+    @staticmethod
+    def _clean_field(value: Any) -> str:
+        """
+        Limpa e normaliza um campo para ser salvo no CSV
+
+        Args:
+            value: Valor a ser limpo
+
+        Returns:
+            String limpa e segura para CSV
+        """
+        # Trata None, NaN, e valores vazios
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return "null"
+
+        # Trata listas
+        if isinstance(value, list):
+            if not value:  # Lista vazia
+                return "null"
+            # Converte cada item para string e junta com vírgula
+            cleaned_items = [str(item).strip() for item in value if item is not None]
+            return ", ".join(cleaned_items) if cleaned_items else "null"
+
+        # Converte para string
+        value_str = str(value).strip()
+
+        # Retorna "null" se vazio
+        if not value_str:
+            return "null"
+
+        # Remove quebras de linha (substituir por espaço)
+        value_str = value_str.replace('\n', ' ').replace('\r', ' ')
+
+        # Remove múltiplos espaços
+        value_str = ' '.join(value_str.split())
+
+        # Remove pipes do conteúdo para evitar conflito com separador
+        value_str = value_str.replace('|', '/')
+
+        return value_str
+
+    @staticmethod
+    def _clean_number(value: Any, default: int = 0) -> int:
+        """
+        Limpa e normaliza um campo numérico
+
+        Args:
+            value: Valor a ser limpo
+            default: Valor padrão se inválido
+
+        Returns:
+            Número inteiro limpo
+        """
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return default
+
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return default
 
     def _get_empty_dataframe(self) -> pd.DataFrame:
         """
@@ -107,11 +169,36 @@ class MetadataManager:
             return df
 
         try:
-            df = pd.read_csv(self.csv_path, encoding='utf-8', sep='|')
+            df = pd.read_csv(
+                self.csv_path,
+                encoding='utf-8',
+                sep='|',
+                quoting=csv.QUOTE_MINIMAL,
+                escapechar='\\',
+                na_values=['null', 'NULL', 'None', ''],  # Trata estes como NaN
+                keep_default_na=True
+            )
 
             # Garante que 'id' seja string
             if 'id' in df.columns:
                 df['id'] = df['id'].astype(str)
+
+            # Substitui NaN por "null" em campos de texto
+            text_columns = ['title', 'description', 'uploader', 'uploader_id', 'uploader_url',
+                          'channel', 'channel_id', 'channel_url', 'upload_date', 'language',
+                          'categories', 'tags', 'audio_format', 'file_path', 'download_type']
+
+            for col in text_columns:
+                if col in df.columns:
+                    df[col] = df[col].fillna("null")
+
+            # Substitui NaN por 0 em campos numéricos
+            numeric_columns = ['duration', 'timestamp', 'view_count', 'like_count',
+                             'comment_count', 'average_rating', 'file_size_bytes']
+
+            for col in numeric_columns:
+                if col in df.columns:
+                    df[col] = df[col].fillna(0).astype(int)
 
             return df
 
@@ -133,8 +220,16 @@ class MetadataManager:
             # Garante que o diretório existe
             self.csv_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Salva CSV com separador pipe
-            df.to_csv(self.csv_path, index=False, encoding='utf-8', sep='|')
+            # Salva CSV com configurações otimizadas
+            df.to_csv(
+                self.csv_path,
+                index=False,
+                encoding='utf-8',
+                sep='|',
+                quoting=csv.QUOTE_MINIMAL,  # Quota apenas campos com separador
+                lineterminator='\n',         # Força terminador Unix
+                escapechar='\\'              # Caractere de escape
+            )
             return True
 
         except Exception as e:
@@ -176,43 +271,43 @@ class MetadataManager:
 
         df = self.load_csv()
 
-        # Prepara dados do vídeo
+        # Prepara dados do vídeo com limpeza completa
         video_data = {
             # Chave primária
             'id': str(video_id),
 
             # Informações Básicas
-            'title': metadata.get('title', ''),
-            'description': metadata.get('description', ''),
-            'duration': metadata.get('duration', 0),
-            'upload_date': metadata.get('upload_date', ''),
-            'timestamp': metadata.get('timestamp', 0),
+            'title': self._clean_field(metadata.get('title')),
+            'description': self._clean_field(metadata.get('description')),
+            'duration': self._clean_number(metadata.get('duration'), 0),
+            'upload_date': self._clean_field(metadata.get('upload_date')),
+            'timestamp': self._clean_number(metadata.get('timestamp'), 0),
 
             # Canal/Uploader
-            'uploader': metadata.get('uploader', ''),
-            'uploader_id': metadata.get('uploader_id', ''),
-            'uploader_url': metadata.get('uploader_url', ''),
-            'channel': metadata.get('channel', ''),
-            'channel_id': metadata.get('channel_id', ''),
-            'channel_url': metadata.get('channel_url', ''),
+            'uploader': self._clean_field(metadata.get('uploader')),
+            'uploader_id': self._clean_field(metadata.get('uploader_id')),
+            'uploader_url': self._clean_field(metadata.get('uploader_url')),
+            'channel': self._clean_field(metadata.get('channel')),
+            'channel_id': self._clean_field(metadata.get('channel_id')),
+            'channel_url': self._clean_field(metadata.get('channel_url')),
 
             # Estatísticas
-            'view_count': metadata.get('view_count', 0),
-            'like_count': metadata.get('like_count', 0),
-            'comment_count': metadata.get('comment_count', 0),
-            'average_rating': metadata.get('average_rating', 0),
+            'view_count': self._clean_number(metadata.get('view_count'), 0),
+            'like_count': self._clean_number(metadata.get('like_count'), 0),
+            'comment_count': self._clean_number(metadata.get('comment_count'), 0),
+            'average_rating': self._clean_number(metadata.get('average_rating'), 0),
 
-            # Categorização (convertidos para string se forem listas)
-            'categories': str(metadata.get('categories', [])) if isinstance(metadata.get('categories'), list) else metadata.get('categories', ''),
-            'tags': str(metadata.get('tags', [])) if isinstance(metadata.get('tags'), list) else metadata.get('tags', ''),
-            'language': metadata.get('language', ''),
+            # Categorização (listas limpas e convertidas)
+            'categories': self._clean_field(metadata.get('categories')),
+            'tags': self._clean_field(metadata.get('tags')),
+            'language': self._clean_field(metadata.get('language')),
 
             # Arquivo
-            'audio_format': metadata.get('audio_format', self.config.AUDIO_FORMAT),
-            'file_path': metadata.get('file_path', ''),
-            'file_size_bytes': metadata.get('file_size_bytes', 0),
+            'audio_format': self._clean_field(metadata.get('audio_format', self.config.AUDIO_FORMAT)),
+            'file_path': self._clean_field(metadata.get('file_path')),
+            'file_size_bytes': self._clean_number(metadata.get('file_size_bytes'), 0),
             'download_date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'download_type': content_type
+            'download_type': self._clean_field(content_type)
         }
 
         # Remove vídeo existente (se houver)
@@ -319,8 +414,16 @@ class MetadataManager:
                 if column in df.columns:
                     df = df[df[column] == value]
 
-            # Exporta com separador pipe
-            df.to_csv(output_path, index=False, encoding='utf-8', sep='|')
+            # Exporta com mesmas configurações do CSV principal
+            df.to_csv(
+                output_path,
+                index=False,
+                encoding='utf-8',
+                sep='|',
+                quoting=csv.QUOTE_MINIMAL,
+                lineterminator='\n',
+                escapechar='\\'
+            )
             print(f"Exportados {len(df)} registros para: {output_path}")
             return True
 
