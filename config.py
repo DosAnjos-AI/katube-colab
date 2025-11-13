@@ -20,7 +20,7 @@ class Config:
     # ========================================================================
     
     # Formato de áudio
-    # Opções: 'flac', 'mp3', 'wav', 'm4a', 'opus'
+    # Opções: 'flac', 'mp3', 'wav', 'm4a', 'opus', 'ogg'
     AUDIO_FORMAT = 'flac'
     
     # Qualidade de áudio (kbps)
@@ -101,7 +101,12 @@ class Config:
     def get_log_path(cls) -> Path:
         """Retorna o caminho da pasta de logs"""
         return cls.get_base_path() / cls.LOG_FOLDER
-    
+
+    @classmethod
+    def get_metadata_csv_path(cls) -> Path:
+        """Retorna o caminho do CSV de metadados consolidado"""
+        return cls.get_base_path() / 'metadata_complete.csv'
+
     @classmethod
     def get_download_path(cls, content_type: str, content_id: str) -> Path:
         """
@@ -137,7 +142,7 @@ class Config:
         issues = []
         
         # Valida formato de áudio
-        valid_formats = ['flac', 'mp3', 'wav', 'm4a', 'opus']
+        valid_formats = ['flac', 'mp3', 'wav', 'm4a', 'opus', 'ogg']
         if cls.AUDIO_FORMAT not in valid_formats:
             issues.append(f"Formato inválido: {cls.AUDIO_FORMAT}. Use: {valid_formats}")
         
