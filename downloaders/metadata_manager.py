@@ -27,6 +27,9 @@ class MetadataManager:
     """
     Gerenciador de CSV consolidado de metadados
     Armazena TODOS os metadados de todos os downloads
+
+    IMPORTANTE: Usa pipe (|) como separador do CSV para evitar conflitos
+    com vírgulas presentes em títulos, descrições e tags.
     """
 
     def __init__(self, config: Config = None):
@@ -100,11 +103,11 @@ class MetadataManager:
         if not self.csv_path.exists():
             print(f"CSV não existe, criando novo em: {self.csv_path}")
             df = self._get_empty_dataframe()
-            df.to_csv(self.csv_path, index=False, encoding='utf-8')
+            df.to_csv(self.csv_path, index=False, encoding='utf-8', sep='|')
             return df
 
         try:
-            df = pd.read_csv(self.csv_path, encoding='utf-8')
+            df = pd.read_csv(self.csv_path, encoding='utf-8', sep='|')
 
             # Garante que 'id' seja string
             if 'id' in df.columns:
@@ -130,8 +133,8 @@ class MetadataManager:
             # Garante que o diretório existe
             self.csv_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Salva CSV
-            df.to_csv(self.csv_path, index=False, encoding='utf-8')
+            # Salva CSV com separador pipe
+            df.to_csv(self.csv_path, index=False, encoding='utf-8', sep='|')
             return True
 
         except Exception as e:
@@ -316,8 +319,8 @@ class MetadataManager:
                 if column in df.columns:
                     df = df[df[column] == value]
 
-            # Exporta
-            df.to_csv(output_path, index=False, encoding='utf-8')
+            # Exporta com separador pipe
+            df.to_csv(output_path, index=False, encoding='utf-8', sep='|')
             print(f"Exportados {len(df)} registros para: {output_path}")
             return True
 

@@ -122,7 +122,7 @@ from downloaders import MetadataManager
 import pandas as pd
 
 manager = MetadataManager()
-df = manager.load_csv()
+df = manager.load_csv()  # Usa separador pipe automaticamente
 
 # Análises personalizadas
 videos_por_canal = df.groupby('uploader').size()
@@ -132,6 +132,9 @@ duracao_media = df['duration'].mean()
 # Filtrar e exportar
 playlists_df = df[df['download_type'] == 'playlist']
 playlists_df.to_csv('apenas_playlists.csv')
+
+# Leitura manual do CSV (se necessário)
+# df = pd.read_csv('metadata_complete.csv', sep='|')
 ```
 
 ## Configuração
@@ -184,7 +187,9 @@ https://youtube.com/playlist?list=PLxxx
 
 ### Estrutura do CSV (`metadata_complete.csv`)
 
-O CSV consolidado contém **23 colunas** com informações completas:
+O CSV consolidado contém **23 colunas** com informações completas.
+
+**IMPORTANTE:** O CSV usa **pipe (`|`)** como separador ao invés de vírgula, evitando conflitos com títulos, descrições e tags que frequentemente contêm vírgulas.
 
 | Categoria | Campos |
 |-----------|--------|
