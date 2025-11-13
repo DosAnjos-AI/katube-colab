@@ -30,6 +30,7 @@ from utils import (
     format_size
 )
 from downloaders.database_manager import DatabaseManager
+from downloaders.metadata_manager import MetadataManager
 
 
 class YouTubeDownloader:
@@ -41,11 +42,12 @@ class YouTubeDownloader:
     def __init__(self, config: Config = None):
         """
         Inicializa o downloader
-        
+
         Args:
             config: Configurações customizadas (usa padrão se None)
         """
         self.config = config or Config()
+        self.metadata_manager = MetadataManager(config=self.config)
         self.stats = {
             'total_attempted': 0,
             'successful': 0,
@@ -140,34 +142,53 @@ class YouTubeDownloader:
     
     def _download_single_video(self, url: str, video_id: str, output_path: Path) -> Dict:
         """
-        Download de um único vídeo
-        
+        Download de um único vídeo com metadados completos
+
         Args:
             url: URL do vídeo
             video_id: ID do vídeo
             output_path: Pasta de destino
-            
+
         Returns:
-            Dict com resultado
+            Dict com resultado e metadados
         """
         self.stats['total_attempted'] += 1
-        
-        # Verifica duplicata
+
+        # SISTEMA DE SKIP - Verifica duplicatas
         audio_file = output_path / f"{video_id}.{self.config.AUDIO_FORMAT}"
-        
-        if audio_file.exists() and self.config.SKIP_EXISTING:
-            print(f"Já existe: {audio_file.name}")
+
+        # 1. Verifica se arquivo existe
+        file_exists = audio_file.exists()
+
+        # 2. Verifica se ID existe no CSV de metadados
+        in_csv = self.metadata_manager.video_exists(video_id)
+
+        # 3. Verifica se pasta existe
+        folder_exists = output_path.exists() and any(output_path.iterdir())
+
+        if self.config.SKIP_EXISTING and (file_exists or in_csv or folder_exists):
+            skip_reason = []
+            if file_exists:
+                skip_reason.append("arquivo existe")
+            if in_csv:
+                skip_reason.append("ID no CSV")
+            if folder_exists and not file_exists:
+                skip_reason.append("pasta existe")
+
+            print(f"⏭️  ID {video_id} já baixado, pulando... ({', '.join(skip_reason)})")
             self.stats['skipped'] += 1
+
             return {
                 'success': True,
                 'skipped': True,
                 'video_id': video_id,
-                'file': str(audio_file)
+                'file': str(audio_file) if file_exists else None,
+                'skip_reason': skip_reason
             }
-        
+
         # Constrói comando yt-dlp
         cmd = self._build_ytdlp_command(url, output_path, video_id)
-        
+
         try:
             print("Baixando áudio...")
             result = subprocess.run(
@@ -176,29 +197,49 @@ class YouTubeDownloader:
                 text=True,
                 check=True
             )
-            
+
             if audio_file.exists():
                 file_size = audio_file.stat().st_size
-                print(f"Concluído: {video_id}.{self.config.AUDIO_FORMAT} ({file_size/1024/1024:.2f} MB)")
+                print(f"✅ Concluído: {video_id}.{self.config.AUDIO_FORMAT} ({file_size/1024/1024:.2f} MB)")
+
+                # Extrai metadados completos
+                print("📊 Extraindo metadados...")
+                metadata = self._extract_metadata(url)
+
+                if metadata:
+                    # Adiciona informações do arquivo aos metadados
+                    metadata['audio_format'] = self.config.AUDIO_FORMAT
+                    metadata['file_path'] = str(audio_file)
+                    metadata['file_size_bytes'] = file_size
+
+                    # Salva no CSV
+                    if self.metadata_manager.add_video(metadata):
+                        print(f"💾 Metadados salvos no CSV")
+                    else:
+                        print(f"⚠️  Aviso: Falha ao salvar metadados no CSV")
+                else:
+                    print(f"⚠️  Aviso: Não foi possível extrair metadados")
+
                 self.stats['successful'] += 1
-                
+
                 return {
                     'success': True,
                     'video_id': video_id,
                     'file': str(audio_file),
-                    'size': file_size
+                    'size': file_size,
+                    'metadata': metadata
                 }
             else:
-                print(f"Erro: Arquivo não foi criado")
+                print(f"❌ Erro: Arquivo não foi criado")
                 self.stats['failed'] += 1
                 return {
                     'success': False,
                     'video_id': video_id,
                     'error': 'Arquivo não foi criado'
                 }
-                
+
         except subprocess.CalledProcessError as e:
-            print(f"Erro no download: {e}")
+            print(f"❌ Erro no download: {e}")
             self.stats['failed'] += 1
             return {
                 'success': False,
@@ -285,13 +326,13 @@ class YouTubeDownloader:
     
     def _extract_metadata(self, url: str) -> Optional[Dict]:
         """
-        Extrai metadados do video usando yt-dlp
-        
+        Extrai metadados COMPLETOS do video usando yt-dlp
+
         Args:
             url: URL do video
-            
+
         Returns:
-            Dict com metadados ou None se falhar
+            Dict com metadados completos ou None se falhar
         """
         cmd = [
             'yt-dlp',
@@ -299,17 +340,41 @@ class YouTubeDownloader:
             '--no-warnings',
             url
         ]
-        
+
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            metadata = json.loads(result.stdout)
-            
+            raw_metadata = json.loads(result.stdout)
+
+            # Extrai TODOS os metadados relevantes
             return {
-                'id': metadata.get('id'),
-                'title': metadata.get('title', 'Unknown'),
-                'duration': metadata.get('duration', 0),
-                'uploader': metadata.get('uploader', 'Unknown'),
-                'upload_date': metadata.get('upload_date', '')
+                # Chave primária
+                'id': raw_metadata.get('id'),
+
+                # Informações Básicas
+                'title': raw_metadata.get('title', ''),
+                'description': raw_metadata.get('description', ''),
+                'duration': raw_metadata.get('duration', 0),
+                'upload_date': raw_metadata.get('upload_date', ''),
+                'timestamp': raw_metadata.get('timestamp', 0),
+
+                # Canal/Uploader
+                'uploader': raw_metadata.get('uploader', ''),
+                'uploader_id': raw_metadata.get('uploader_id', ''),
+                'uploader_url': raw_metadata.get('uploader_url', ''),
+                'channel': raw_metadata.get('channel', ''),
+                'channel_id': raw_metadata.get('channel_id', ''),
+                'channel_url': raw_metadata.get('channel_url', ''),
+
+                # Estatísticas
+                'view_count': raw_metadata.get('view_count', 0),
+                'like_count': raw_metadata.get('like_count', 0),
+                'comment_count': raw_metadata.get('comment_count', 0),
+                'average_rating': raw_metadata.get('average_rating', 0),
+
+                # Categorização
+                'categories': raw_metadata.get('categories', []),
+                'tags': raw_metadata.get('tags', []),
+                'language': raw_metadata.get('language', '')
             }
         except Exception as e:
             print(f"Aviso: Nao foi possivel extrair metadados: {e}")
