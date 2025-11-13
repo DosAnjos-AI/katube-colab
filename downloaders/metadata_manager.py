@@ -50,6 +50,7 @@ class MetadataManager:
     def _clean_field(value: Any) -> str:
         """
         Limpa e normaliza um campo para ser salvo no CSV
+        Remove TODOS os caracteres problemáticos
 
         Args:
             value: Valor a ser limpo
@@ -59,31 +60,41 @@ class MetadataManager:
         """
         # Trata None, NaN, e valores vazios
         if value is None or (isinstance(value, float) and pd.isna(value)):
-            return "null"
+            return ""
 
-        # Trata listas
+        # Trata listas - usa ponto-e-vírgula como separador interno
         if isinstance(value, list):
             if not value:  # Lista vazia
-                return "null"
-            # Converte cada item para string e junta com vírgula
-            cleaned_items = [str(item).strip() for item in value if item is not None]
-            return ", ".join(cleaned_items) if cleaned_items else "null"
+                return ""
+            # Limpa cada item e junta com ponto-e-vírgula
+            cleaned_items = []
+            for item in value:
+                if item is not None:
+                    item_str = str(item).strip()
+                    # Remove vírgulas e pipes dos itens
+                    item_str = item_str.replace(',', ' ').replace('|', '-')
+                    if item_str:
+                        cleaned_items.append(item_str)
+            return ";".join(cleaned_items) if cleaned_items else ""
 
         # Converte para string
         value_str = str(value).strip()
 
-        # Retorna "null" se vazio
+        # Retorna vazio se não há conteúdo
         if not value_str:
-            return "null"
+            return ""
 
-        # Remove quebras de linha (substituir por espaço)
-        value_str = value_str.replace('\n', ' ').replace('\r', ' ')
+        # CRÍTICO: Remove quebras de linha (substituir por espaço)
+        value_str = value_str.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+
+        # Remove pipes (conflitam com separador)
+        value_str = value_str.replace('|', '-')
+
+        # Remove aspas duplas (podem quebrar CSV) - substitui por aspas simples
+        value_str = value_str.replace('"', "'")
 
         # Remove múltiplos espaços
         value_str = ' '.join(value_str.split())
-
-        # Remove pipes do conteúdo para evitar conflito com separador
-        value_str = value_str.replace('|', '/')
 
         return value_str
 
@@ -100,6 +111,10 @@ class MetadataManager:
             Número inteiro limpo
         """
         if value is None or (isinstance(value, float) and pd.isna(value)):
+            return default
+
+        # Trata strings vazias
+        if isinstance(value, str) and not value.strip():
             return default
 
         try:
@@ -175,22 +190,26 @@ class MetadataManager:
                 sep='|',
                 quoting=csv.QUOTE_MINIMAL,
                 escapechar='\\',
-                na_values=['null', 'NULL', 'None', ''],  # Trata estes como NaN
-                keep_default_na=True
+                on_bad_lines='skip',        # CRÍTICO: Ignora linhas malformadas
+                engine='python',            # Engine mais tolerante
+                keep_default_na=False       # Não converte strings vazias em NaN
             )
+
+            # Remove linhas completamente vazias
+            df = df.dropna(how='all')
 
             # Garante que 'id' seja string
             if 'id' in df.columns:
                 df['id'] = df['id'].astype(str)
 
-            # Substitui NaN por "null" em campos de texto
+            # Substitui NaN por string vazia em campos de texto
             text_columns = ['title', 'description', 'uploader', 'uploader_id', 'uploader_url',
                           'channel', 'channel_id', 'channel_url', 'upload_date', 'language',
                           'categories', 'tags', 'audio_format', 'file_path', 'download_type']
 
             for col in text_columns:
                 if col in df.columns:
-                    df[col] = df[col].fillna("null")
+                    df[col] = df[col].fillna("")
 
             # Substitui NaN por 0 em campos numéricos
             numeric_columns = ['duration', 'timestamp', 'view_count', 'like_count',
@@ -208,7 +227,7 @@ class MetadataManager:
 
     def save_csv(self, df: pd.DataFrame) -> bool:
         """
-        Salva DataFrame no CSV
+        Salva DataFrame no CSV usando csv.DictWriter para controle total
 
         Args:
             df: DataFrame a salvar
@@ -220,16 +239,44 @@ class MetadataManager:
             # Garante que o diretório existe
             self.csv_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Salva CSV com configurações otimizadas
-            df.to_csv(
-                self.csv_path,
-                index=False,
-                encoding='utf-8',
-                sep='|',
-                quoting=csv.QUOTE_MINIMAL,  # Quota apenas campos com separador
-                lineterminator='\n',         # Força terminador Unix
-                escapechar='\\'              # Caractere de escape
-            )
+            # Define ordem dos campos (23 colunas)
+            fieldnames = [
+                'id', 'title', 'description', 'duration', 'upload_date',
+                'timestamp', 'uploader', 'uploader_id', 'uploader_url',
+                'channel', 'channel_id', 'channel_url', 'view_count',
+                'like_count', 'comment_count', 'average_rating', 'categories',
+                'tags', 'language', 'audio_format', 'file_path',
+                'file_size_bytes', 'download_date', 'download_type'
+            ]
+
+            # Escreve CSV linha por linha com csv.DictWriter
+            with open(self.csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.DictWriter(
+                    csvfile,
+                    fieldnames=fieldnames,
+                    delimiter='|',               # Separador pipe
+                    quoting=csv.QUOTE_MINIMAL,   # Mínimo de aspas
+                    escapechar='\\',             # Escape para casos especiais
+                    lineterminator='\n'          # Força terminador Unix
+                )
+
+                # Escreve cabeçalho
+                writer.writeheader()
+
+                # Escreve cada linha
+                for _, row in df.iterrows():
+                    # Converte row para dict e garante que todos campos existem
+                    row_dict = {}
+                    for field in fieldnames:
+                        value = row.get(field, '')
+                        # Garante que valores vazios sejam strings vazias
+                        if pd.isna(value) or value is None:
+                            row_dict[field] = ''
+                        else:
+                            row_dict[field] = value
+
+                    writer.writerow(row_dict)
+
             return True
 
         except Exception as e:
@@ -414,16 +461,39 @@ class MetadataManager:
                 if column in df.columns:
                     df = df[df[column] == value]
 
-            # Exporta com mesmas configurações do CSV principal
-            df.to_csv(
-                output_path,
-                index=False,
-                encoding='utf-8',
-                sep='|',
-                quoting=csv.QUOTE_MINIMAL,
-                lineterminator='\n',
-                escapechar='\\'
-            )
+            # Define ordem dos campos (23 colunas)
+            fieldnames = [
+                'id', 'title', 'description', 'duration', 'upload_date',
+                'timestamp', 'uploader', 'uploader_id', 'uploader_url',
+                'channel', 'channel_id', 'channel_url', 'view_count',
+                'like_count', 'comment_count', 'average_rating', 'categories',
+                'tags', 'language', 'audio_format', 'file_path',
+                'file_size_bytes', 'download_date', 'download_type'
+            ]
+
+            # Exporta com csv.DictWriter (mesmo método do save_csv)
+            with open(output_path, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.DictWriter(
+                    csvfile,
+                    fieldnames=fieldnames,
+                    delimiter='|',
+                    quoting=csv.QUOTE_MINIMAL,
+                    escapechar='\\',
+                    lineterminator='\n'
+                )
+
+                writer.writeheader()
+
+                for _, row in df.iterrows():
+                    row_dict = {}
+                    for field in fieldnames:
+                        value = row.get(field, '')
+                        if pd.isna(value) or value is None:
+                            row_dict[field] = ''
+                        else:
+                            row_dict[field] = value
+                    writer.writerow(row_dict)
+
             print(f"Exportados {len(df)} registros para: {output_path}")
             return True
 
@@ -452,6 +522,85 @@ class MetadataManager:
             return None
 
         return video_row.iloc[0].to_dict()
+
+    def validate_csv_integrity(self) -> bool:
+        """
+        Valida integridade do CSV após gravação
+        Verifica estrutura, linhas vazias e número de colunas
+
+        Returns:
+            True se CSV está válido
+        """
+        if not self.csv_path.exists():
+            print("CSV não existe ainda")
+            return False
+
+        try:
+            df = self.load_csv()
+
+            # Número esperado de colunas
+            expected_cols = 23
+            actual_cols = len(df.columns)
+
+            print("=" * 60)
+            print("VALIDAÇÃO DO CSV".center(60))
+            print("=" * 60)
+
+            # Verifica número de colunas
+            if actual_cols != expected_cols:
+                print(f"⚠️  AVISO: CSV tem {actual_cols} colunas, esperado {expected_cols}")
+                print(f"Colunas encontradas: {list(df.columns)}")
+                return False
+            else:
+                print(f"✓ Número de colunas correto: {expected_cols}")
+
+            # Verifica linhas vazias
+            empty_rows = df.isnull().all(axis=1).sum()
+            if empty_rows > 0:
+                print(f"⚠️  AVISO: {empty_rows} linhas vazias detectadas")
+                # Remove linhas vazias e salva
+                df_clean = df.dropna(how='all')
+                self.save_csv(df_clean)
+                print(f"✓ Linhas vazias removidas automaticamente")
+            else:
+                print(f"✓ Sem linhas vazias")
+
+            # Verifica registros válidos
+            valid_records = len(df)
+            print(f"✓ Total de registros válidos: {valid_records}")
+
+            # Verifica IDs únicos
+            duplicated_ids = df['id'].duplicated().sum()
+            if duplicated_ids > 0:
+                print(f"⚠️  AVISO: {duplicated_ids} IDs duplicados encontrados")
+            else:
+                print(f"✓ Todos os IDs são únicos")
+
+            # Verifica campos obrigatórios
+            required_fields = ['id', 'title', 'download_date']
+            missing_required = []
+            for field in required_fields:
+                if field not in df.columns:
+                    missing_required.append(field)
+                elif df[field].isnull().any():
+                    null_count = df[field].isnull().sum()
+                    print(f"⚠️  AVISO: Campo '{field}' tem {null_count} valores nulos")
+
+            if missing_required:
+                print(f"✗ Campos obrigatórios faltando: {missing_required}")
+                return False
+            else:
+                print(f"✓ Todos os campos obrigatórios presentes")
+
+            print("=" * 60)
+            print("✓ CSV VALIDADO COM SUCESSO".center(60))
+            print("=" * 60)
+
+            return True
+
+        except Exception as e:
+            print(f"✗ Erro na validação: {e}")
+            return False
 
     def print_summary(self):
         """Imprime resumo formatado"""
