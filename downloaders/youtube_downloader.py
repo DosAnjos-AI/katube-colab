@@ -354,6 +354,12 @@ class YouTubeDownloader:
                 'comment_count': data.get('comment_count', 0)
             }
 
+            # DEBUG: Mostra valores extraídos (importante para diagnóstico)
+            print(f"  DEBUG - Metadados extraídos:")
+            print(f"    - view_count: {metadata['view_count']} (tipo: {type(metadata['view_count']).__name__})")
+            print(f"    - like_count: {metadata['like_count']} (tipo: {type(metadata['like_count']).__name__})")
+            print(f"    - comment_count: {metadata['comment_count']} (tipo: {type(metadata['comment_count']).__name__})")
+
             return metadata
 
         except Exception as e:
