@@ -34,7 +34,7 @@ class MetadataManager:
             config: Configuracoes customizadas
         """
         self.config = config or Config()
-        self.csv_separator = '|'
+        self.csv_separator = self.config.CSV_SEPARATOR
         
     def extract_metadata(self, url: str) -> Optional[Dict]:
         """

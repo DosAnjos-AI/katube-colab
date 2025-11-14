@@ -35,9 +35,12 @@ class DriveManager:
         self.config = config or Config()
         self.drive_mounted = False
         
-    def mount_drive(self) -> bool:
+    def mount_drive(self, force_remount: bool = False) -> bool:
         """
         Monta o Google Drive no Colab
+        
+        Args:
+            force_remount: Se True, força remontagem mesmo se já montado
         
         Returns:
             True se montado com sucesso
@@ -45,11 +48,25 @@ class DriveManager:
         try:
             from google.colab import drive
             
+            # Verifica se já está montado
+            drive_path = Path(self.config.DRIVE_ROOT)
+            if drive_path.exists() and not force_remount:
+                print("Drive já está montado!")
+                self.drive_mounted = True
+                return True
+            
             print("Montando Google Drive...")
-            drive.mount('/content/drive', force_remount=False)
+            try:
+                drive.mount('/content/drive', force_remount=force_remount)
+            except Exception as mount_error:
+                if "already contain files" in str(mount_error):
+                    print("Drive já estava montado, reutilizando montagem existente...")
+                    self.drive_mounted = True
+                    return True
+                else:
+                    raise mount_error
             
             # Verifica se montou
-            drive_path = Path(self.config.DRIVE_ROOT)
             self.drive_mounted = drive_path.exists()
             
             if self.drive_mounted:
@@ -61,7 +78,7 @@ class DriveManager:
                 
         except ImportError:
             print("Aviso: google.colab não disponível (rodando localmente?)")
-            self.drive_mounted = True  # Assume montado em ambiente local
+            self.drive_mounted = True
             return True
         except Exception as e:
             print(f"Erro ao montar Drive: {e}")

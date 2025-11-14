@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Configuracoes Centralizadas - Katube Colab
-Sistema modular para download de audio do YouTube com persistencia no Google Drive
+Configurações Centralizadas - Katube Colab
+Sistema modular para download de áudio do YouTube com persistência no Google Drive
 """
 
 from pathlib import Path
@@ -11,20 +11,20 @@ from typing import Optional
 
 class Config:
     """
-    Configuracoes centralizadas do Katube Colab
-    Permite controle de todos os parametros de download
+    Configurações centralizadas do Katube Colab
+    Permite controle de todos os parâmetros de download
     """
     
     # ========================================================================
-    # CONFIGURACOES DE AUDIO
+    # CONFIGURAÇÕES DE ÁUDIO
     # ========================================================================
     
-    # Formato de audio
-    # Opcoes: 'mp3', 'flac', 'wav', 'm4a', 'opus'
-    AUDIO_FORMAT = 'mp3'
+    # Formato de áudio
+    # Opções: 'flac', 'mp3', 'wav', 'm4a', 'opus'
+    AUDIO_FORMAT = 'flac'
     
-    # Qualidade de audio (kbps)
-    # 0 = melhor qualidade disponivel
+    # Qualidade de áudio (kbps)
+    # 0 = melhor qualidade disponível
     # Valores comuns: 128, 192, 256, 320
     AUDIO_QUALITY = 0
     
@@ -36,7 +36,8 @@ class Config:
     DRIVE_ROOT = '/content/drive/MyDrive'
     
     # Pasta base de downloads
-    BASE_FOLDER = 'Katube_Download'
+    # Usa timestamp para evitar conflito com pastas existentes
+    BASE_FOLDER = 'KatubeAudio_PDSI'
     
     # Prefixos para tipos de download
     PREFIX_PLAYLIST = 'Playlist'
@@ -49,40 +50,17 @@ class Config:
     # ========================================================================
     
     # Comportamento com duplicatas
-    SKIP_EXISTING = True  # True = pula se ja existe, False = sobrescreve
+    SKIP_EXISTING = True  # True = pula se já existe, False = sobrescreve
     
     # Delay entre downloads (segundos)
     DELAY_MIN = 10
     DELAY_MAX = 20
     
-    # Limite maximo de downloads por execucao (0 = sem limite)
+    # Limite máximo de downloads por execução (0 = sem limite)
     MAX_DOWNLOADS = 0
     
     # ========================================================================
-    # CSV E METADADOS
-    # ========================================================================
-    
-    # Ativar geracao de CSV com metadados
-    CSV_ENABLED = True
-    
-    # Nome do arquivo CSV
-    CSV_FILENAME = 'metadados.csv'
-    
-    # Separador do CSV (usar | para evitar conflito com virgulas em titulos)
-    CSV_SEPARATOR = '|'
-    
-    # ========================================================================
-    # CHECKPOINT E RETOMADA
-    # ========================================================================
-    
-    # Ativar sistema de checkpoint
-    CHECKPOINT_ENABLED = True
-    
-    # Nome do arquivo de checkpoint
-    CHECKPOINT_FILE = 'checkpoint.json'
-    
-    # ========================================================================
-    # LOGS E RELATORIOS
+    # LOGS E RELATÓRIOS
     # ========================================================================
     
     # Ativar logs no terminal
@@ -95,15 +73,15 @@ class Config:
     LOG_FOLDER = 'logs'
     
     # ========================================================================
-    # CONFIGURACOES AVANCADAS DO YT-DLP
+    # CONFIGURAÇÕES AVANÇADAS DO YT-DLP
     # ========================================================================
     
-    # Filtros de duracao de video (segundos)
-    MIN_DURATION = 30      # Minimo 30 segundos
-    MAX_DURATION = 7200    # Maximo 2 horas
+    # Filtros de duração de vídeo (segundos)
+    MIN_DURATION = 30      # Mínimo 30 segundos
+    MAX_DURATION = 7200    # Máximo 2 horas
     
-    # Filtros de conteudo
-    SKIP_LIVE_STREAMS = True   # Pula transmissoes ao vivo
+    # Filtros de conteúdo
+    SKIP_LIVE_STREAMS = True   # Pula transmissões ao vivo
     SKIP_PREMIERES = False     # Pula premieres
     SKIP_SHORTS = False        # Pula YouTube Shorts
     
@@ -112,7 +90,7 @@ class Config:
     RETRY_DELAY = 60  # segundos
     
     # ========================================================================
-    # METODOS AUXILIARES
+    # MÉTODOS AUXILIARES
     # ========================================================================
     
     @classmethod
@@ -128,11 +106,11 @@ class Config:
     @classmethod
     def get_download_path(cls, content_type: str, content_id: str) -> Path:
         """
-        Retorna o caminho completo para um tipo especifico de download
+        Retorna o caminho completo para um tipo específico de download
         
         Args:
             content_type: 'playlist', 'channel', 'video', 'txt'
-            content_id: ID do conteudo
+            content_id: ID do conteúdo
             
         Returns:
             Path completo para o download
@@ -150,45 +128,19 @@ class Config:
         return cls.get_base_path() / folder_name
     
     @classmethod
-    def get_csv_path(cls, download_path: Path) -> Path:
-        """
-        Retorna o caminho do arquivo CSV para um download
-        
-        Args:
-            download_path: Caminho da pasta de download
-            
-        Returns:
-            Path do arquivo CSV
-        """
-        return download_path / cls.CSV_FILENAME
-    
-    @classmethod
-    def get_checkpoint_path(cls, download_path: Path) -> Path:
-        """
-        Retorna o caminho do arquivo de checkpoint
-        
-        Args:
-            download_path: Caminho da pasta de download
-            
-        Returns:
-            Path do arquivo checkpoint
-        """
-        return download_path / cls.CHECKPOINT_FILE
-    
-    @classmethod
     def validate(cls) -> dict:
         """
-        Valida as configuracoes
+        Valida as configurações
         
         Returns:
             Dict com status e mensagens
         """
         issues = []
         
-        # Valida formato de audio
-        valid_formats = ['mp3', 'flac', 'wav', 'm4a', 'opus']
+        # Valida formato de áudio
+        valid_formats = ['flac', 'mp3', 'wav', 'm4a', 'opus']
         if cls.AUDIO_FORMAT not in valid_formats:
-            issues.append(f"Formato invalido: {cls.AUDIO_FORMAT}. Use: {valid_formats}")
+            issues.append(f"Formato inválido: {cls.AUDIO_FORMAT}. Use: {valid_formats}")
         
         # Valida qualidade
         if cls.AUDIO_QUALITY < 0:
@@ -198,7 +150,7 @@ class Config:
         if cls.DELAY_MIN > cls.DELAY_MAX:
             issues.append("DELAY_MIN deve ser <= DELAY_MAX")
         
-        # Valida duracoes
+        # Valida durações
         if cls.MIN_DURATION > cls.MAX_DURATION:
             issues.append("MIN_DURATION deve ser <= MAX_DURATION")
         
@@ -209,32 +161,30 @@ class Config:
     
     @classmethod
     def print_config(cls):
-        """Imprime configuracao atual de forma legivel"""
+        """Imprime configuração atual de forma legível"""
         print("="*60)
-        print("CONFIGURACAO KATUBE COLAB")
+        print("CONFIGURAÇÃO KATUBE COLAB")
         print("="*60)
-        print(f"Formato de Audio: {cls.AUDIO_FORMAT}")
-        print(f"Qualidade: {cls.AUDIO_QUALITY} kbps" if cls.AUDIO_QUALITY > 0 else "Qualidade: Melhor disponivel")
+        print(f"Formato de Áudio: {cls.AUDIO_FORMAT}")
+        print(f"Qualidade: {cls.AUDIO_QUALITY} kbps" if cls.AUDIO_QUALITY > 0 else "Qualidade: Melhor disponível")
         print(f"Pasta Base: {cls.get_base_path()}")
         print(f"Skip Duplicatas: {cls.SKIP_EXISTING}")
         print(f"Delay: {cls.DELAY_MIN}-{cls.DELAY_MAX}s")
         print(f"Max Downloads: {cls.MAX_DOWNLOADS if cls.MAX_DOWNLOADS > 0 else 'Sem limite'}")
-        print(f"CSV Habilitado: {'Sim' if cls.CSV_ENABLED else 'Nao'}")
-        print(f"Checkpoint Habilitado: {'Sim' if cls.CHECKPOINT_ENABLED else 'Nao'}")
-        print(f"Logs: Terminal={'Sim' if cls.ENABLE_CONSOLE_LOG else 'Nao'}, Arquivo={'Sim' if cls.ENABLE_FILE_LOG else 'Nao'}")
+        print(f"Logs: Terminal={'Sim' if cls.ENABLE_CONSOLE_LOG else 'Não'}, Arquivo={'Sim' if cls.ENABLE_FILE_LOG else 'Não'}")
         print("="*60)
 
 
-# Instancia global para uso simples
+# Instância global para uso simples
 config = Config()
 
 
 if __name__ == "__main__":
-    # Teste de validacao
+    # Teste de validação
     validation = Config.validate()
     
     if validation['valid']:
-        print("Configuracoes validas!")
+        print("Configurações válidas!")
         Config.print_config()
     else:
         print("Erros encontrados:")
