@@ -7,7 +7,7 @@ Modulos de download e gerenciamento de armazenamento
 
 from .youtube_downloader import YouTubeDownloader
 from .drive_manager import DriveManager
-from .database_manager import DatabaseManager
+from .metadata_manager import MetadataManager
 
-__all__ = ['YouTubeDownloader', 'DriveManager', 'DatabaseManager']
+__all__ = ['YouTubeDownloader', 'DriveManager', 'MetadataManager']
 __version__ = '1.0.0'

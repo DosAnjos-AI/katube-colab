@@ -2,11 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 YouTube Downloader - Katube Colab
-Core do download de áudio usando yt-dlp
+Core do download de áudio usando yt-dlp com detecção automática de tipo
 """
 
 import subprocess
 import json
+import time
 from pathlib import Path
 from typing import Dict, List, Optional
 import sys
@@ -14,257 +15,291 @@ import os
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from config import Config
 from utils import (
-    detect_url_type, 
-    validate_youtube_url, 
-    random_delay, 
-    wait_with_countdown,
-    get_timestamp,
+    detect_url_type,
+    validate_youtube_url,
     ensure_path_exists,
-    read_urls_from_file,
-    get_next_txt_id,
     print_header,
-    print_progress,
-    format_duration,
-    format_size
+    print_progress
 )
-from downloaders.database_manager import DatabaseManager
+from downloaders.metadata_manager import MetadataManager
 
 
 class YouTubeDownloader:
     """
-    Gerenciador de downloads do YouTube
-    Suporta: vídeos individuais, playlists, canais e arquivos txt
+    Gerenciador de downloads do YouTube com detecção automática
+    Suporta: vídeos individuais, playlists e canais
     """
-    
-    def __init__(self, config: Config = None):
+
+    def __init__(
+        self,
+        base_folder: str = "Katube_Download",
+        audio_format: str = "mp3",
+        audio_quality: int = 256,
+        min_duration: int = 30,
+        max_duration: int = 7200
+    ):
         """
         Inicializa o downloader
-        
+
         Args:
-            config: Configurações customizadas (usa padrão se None)
+            base_folder: Nome da pasta base no Google Drive
+            audio_format: Formato do áudio (mp3, flac, wav, m4a, ogg, opus)
+            audio_quality: Qualidade em kbps (0 = melhor, 128, 192, 256, 320)
+            min_duration: Duração mínima em segundos
+            max_duration: Duração máxima em segundos
         """
-        self.config = config or Config()
+        self.base_folder = base_folder
+        self.base_path = Path("/content/drive/MyDrive") / base_folder
+        self.audio_format = audio_format
+        self.audio_quality = audio_quality
+        self.min_duration = min_duration
+        self.max_duration = max_duration
+
+        # Gerenciador de metadados
+        self.metadata_manager = MetadataManager(base_folder)
+
+        # Estatísticas
         self.stats = {
             'total_attempted': 0,
             'successful': 0,
             'failed': 0,
             'skipped': 0
         }
-        
-    def download_from_url(self, url: str) -> Dict:
+
+    def process_url(self, url: str, delay: int = 2) -> List[Dict]:
         """
-        Download a partir de uma URL do YouTube
-        
+        Processa URL detectando tipo automaticamente
+
         Args:
-            url: URL do YouTube (vídeo, playlist, canal)
-            
+            url: URL do YouTube (vídeo, playlist ou canal)
+            delay: Delay entre downloads em segundos
+
         Returns:
-            Dict com resultado do download
+            Lista de resultados
         """
-        print_header(f"DOWNLOAD: {url}")
-        
+        print_header("KATUBE - PROCESSAMENTO AUTOMÁTICO")
+
         if not validate_youtube_url(url):
-            return {'success': False, 'error': 'URL inválida'}
-        
+            print("ERRO: URL inválida")
+            return [{'success': False, 'error': 'URL inválida'}]
+
+        # Detecta tipo automaticamente
         url_type, content_id = detect_url_type(url)
-        
-        if url_type == 'unknown':
-            return {'success': False, 'error': 'Tipo de URL não reconhecido'}
-        
+
+        print(f"URL detectada: {url}")
         print(f"Tipo: {url_type.upper()}")
         print(f"ID: {content_id}")
-        
-        # Determina pasta de destino
-        output_path = self.config.get_download_path(url_type, content_id)
-        ensure_path_exists(output_path)
-        
-        print(f"Destino: {output_path}")
-        
-        # Executa download
+        print(f"Destino: {self.base_path}")
+        print("=" * 80)
+
+        # Processa conforme o tipo
         if url_type == 'video':
-            return self._download_single_video(url, content_id, output_path)
+            return self._process_video(url, delay)
+        elif url_type == 'playlist':
+            return self._process_playlist(url, delay)
+        elif url_type == 'channel':
+            return self._process_channel(url, delay)
         else:
-            return self._download_collection(url, url_type, output_path)
-    
-    def download_from_txt(self, txt_path: str) -> Dict:
+            print("ERRO: Tipo de URL não reconhecido")
+            return [{'success': False, 'error': 'Tipo não reconhecido'}]
+
+    def _process_video(self, url: str, delay: int = 0) -> List[Dict]:
         """
-        Download de múltiplas URLs de um arquivo txt
-        
-        Args:
-            txt_path: Caminho do arquivo txt com URLs
-            
-        Returns:
-            Dict com resultado dos downloads
-        """
-        urls = read_urls_from_file(txt_path)
-        
-        if not urls:
-            return {'success': False, 'error': 'Nenhuma URL válida encontrada'}
-        
-        print_header(f"DOWNLOAD DE ARQUIVO TXT: {len(urls)} URLs")
-        
-        # Gera ID sequencial
-        txt_id = get_next_txt_id(self.config.get_base_path())
-        output_path = self.config.get_download_path('txt', txt_id)
-        ensure_path_exists(output_path)
-        
-        print(f"ID gerado: txt_{txt_id}")
-        print(f"Destino: {output_path}")
-        
-        results = []
-        
-        for i, url in enumerate(urls, 1):
-            print(f"\n[{i}/{len(urls)}] Processando: {url}")
-            
-            url_type, content_id = detect_url_type(url)
-            video_path = output_path / content_id
-            ensure_path_exists(video_path)
-            
-            result = self._download_single_video(url, content_id, video_path)
-            results.append(result)
-            
-            # Delay entre downloads
-            if i < len(urls) and result['success']:
-                delay = random_delay(self.config.DELAY_MIN, self.config.DELAY_MAX)
-                wait_with_countdown(delay, "Aguardando próximo download")
-        
-        return {
-            'success': True,
-            'txt_id': txt_id,
-            'total_urls': len(urls),
-            'results': results,
-            'stats': self.stats
-        }
-    
-    def _download_single_video(self, url: str, video_id: str, output_path: Path) -> Dict:
-        """
-        Download de um único vídeo
-        
+        Processa vídeo individual
+
         Args:
             url: URL do vídeo
-            video_id: ID do vídeo
-            output_path: Pasta de destino
-            
+            delay: Não usado para vídeo único
+
         Returns:
-            Dict com resultado
+            Lista com resultado (1 item)
         """
-        self.stats['total_attempted'] += 1
-        
-        # Verifica duplicata
-        audio_file = output_path / f"{video_id}.{self.config.AUDIO_FORMAT}"
-        
-        if audio_file.exists() and self.config.SKIP_EXISTING:
-            print(f"Já existe: {audio_file.name}")
+        print("\nProcessando vídeo individual...")
+
+        # Extrai metadados primeiro
+        metadata = self._extract_metadata(url)
+
+        if not metadata:
+            return [{'success': False, 'error': 'Falha ao extrair metadados'}]
+
+        video_id = metadata.get('id')
+        print(f"\nVídeo: {metadata.get('title', 'Unknown')}")
+        print(f"ID: {video_id}")
+        print(f"Duração: {metadata.get('duration', 0)}s")
+
+        # Verifica se deve pular
+        if self._should_skip(video_id):
+            print(f"SKIP: Vídeo já existe")
             self.stats['skipped'] += 1
-            return {
-                'success': True,
-                'skipped': True,
-                'video_id': video_id,
-                'file': str(audio_file)
-            }
-        
-        # Constrói comando yt-dlp
-        cmd = self._build_ytdlp_command(url, output_path, video_id)
-        
-        try:
-            print("Baixando áudio...")
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            
-            if audio_file.exists():
-                file_size = audio_file.stat().st_size
-                print(f"Concluído: {video_id}.{self.config.AUDIO_FORMAT} ({file_size/1024/1024:.2f} MB)")
-                self.stats['successful'] += 1
-                
-                return {
-                    'success': True,
-                    'video_id': video_id,
-                    'file': str(audio_file),
-                    'size': file_size
-                }
-            else:
-                print(f"Erro: Arquivo não foi criado")
-                self.stats['failed'] += 1
-                return {
-                    'success': False,
-                    'video_id': video_id,
-                    'error': 'Arquivo não foi criado'
-                }
-                
-        except subprocess.CalledProcessError as e:
-            print(f"Erro no download: {e}")
-            self.stats['failed'] += 1
-            return {
-                'success': False,
-                'video_id': video_id,
-                'error': str(e)
-            }
-    
-    def _download_collection(self, url: str, collection_type: str, output_path: Path) -> Dict:
+            return [{'success': True, 'skipped': True, 'id': video_id}]
+
+        # Cria pasta do vídeo
+        video_folder = self.base_path / f"video_{video_id}"
+        ensure_path_exists(video_folder)
+
+        # Baixa áudio
+        result = self._download_audio(url, video_id, video_folder, metadata)
+
+        return [result]
+
+    def _process_playlist(self, url: str, delay: int = 2) -> List[Dict]:
         """
-        Download de playlist ou canal
-        
+        Processa playlist completa
+
         Args:
-            url: URL da coleção
-            collection_type: 'playlist' ou 'channel'
-            output_path: Pasta base
-            
+            url: URL da playlist
+            delay: Delay entre downloads em segundos
+
         Returns:
-            Dict com resultado
+            Lista de resultados
         """
-        print(f"Obtendo lista de vídeos da {collection_type}...")
-        
+        print("\nProcessando playlist...")
+
         # Extrai lista de IDs
         video_ids = self._extract_video_ids(url)
-        
+
         if not video_ids:
-            return {'success': False, 'error': 'Nenhum vídeo encontrado'}
-        
-        print(f"Encontrados {len(video_ids)} vídeos")
-        
-        # Aplica limite se configurado
-        if self.config.MAX_DOWNLOADS > 0:
-            video_ids = video_ids[:self.config.MAX_DOWNLOADS]
-            print(f"Limitado a {len(video_ids)} vídeos")
-        
+            print("ERRO: Nenhum vídeo encontrado na playlist")
+            return [{'success': False, 'error': 'Playlist vazia'}]
+
+        print(f"Encontrados {len(video_ids)} vídeos na playlist\n")
+
         results = []
-        
+
         for i, video_id in enumerate(video_ids, 1):
-            print_progress(i, len(video_ids), "Progresso")
-            
+            print(f"\n[{i}/{len(video_ids)}] Processando: {video_id}")
+
             video_url = f"https://www.youtube.com/watch?v={video_id}"
-            video_path = output_path / video_id
-            ensure_path_exists(video_path)
-            
-            result = self._download_single_video(video_url, video_id, video_path)
+
+            # Extrai metadados
+            metadata = self._extract_metadata(video_url)
+
+            if not metadata:
+                print(f"ERRO: Falha ao extrair metadados de {video_id}")
+                results.append({'success': False, 'id': video_id, 'error': 'Falha nos metadados'})
+                continue
+
+            print(f"Título: {metadata.get('title', 'Unknown')[:60]}...")
+
+            # Verifica skip
+            if self._should_skip(video_id):
+                print(f"SKIP: Vídeo já existe")
+                self.stats['skipped'] += 1
+                results.append({'success': True, 'skipped': True, 'id': video_id})
+                continue
+
+            # Cria pasta do vídeo
+            video_folder = self.base_path / f"video_{video_id}"
+            ensure_path_exists(video_folder)
+
+            # Baixa áudio
+            result = self._download_audio(video_url, video_id, video_folder, metadata)
             results.append(result)
-            
+
             # Delay entre downloads
-            if i < len(video_ids) and result['success']:
-                delay = random_delay(self.config.DELAY_MIN, self.config.DELAY_MAX)
-                wait_with_countdown(delay)
-        
-        return {
-            'success': True,
-            'collection_type': collection_type,
-            'total_videos': len(video_ids),
-            'results': results,
-            'stats': self.stats
-        }
-    
+            if i < len(video_ids) and result.get('success') and delay > 0:
+                print(f"Aguardando {delay}s...")
+                time.sleep(delay)
+
+        return results
+
+    def _process_channel(self, url: str, delay: int = 2) -> List[Dict]:
+        """
+        Processa todos os vídeos de um canal
+
+        Args:
+            url: URL do canal
+            delay: Delay entre downloads em segundos
+
+        Returns:
+            Lista de resultados
+        """
+        print("\nProcessando canal...")
+
+        # Modifica URL para pegar todos os vídeos
+        if '/@' in url:
+            if '/videos' not in url:
+                url = url.rstrip('/') + '/videos'
+
+        # Extrai lista de IDs
+        video_ids = self._extract_video_ids(url)
+
+        if not video_ids:
+            print("ERRO: Nenhum vídeo encontrado no canal")
+            return [{'success': False, 'error': 'Canal vazio'}]
+
+        print(f"Encontrados {len(video_ids)} vídeos no canal\n")
+
+        results = []
+
+        for i, video_id in enumerate(video_ids, 1):
+            print(f"\n[{i}/{len(video_ids)}] Processando: {video_id}")
+
+            video_url = f"https://www.youtube.com/watch?v={video_id}"
+
+            # Extrai metadados
+            metadata = self._extract_metadata(video_url)
+
+            if not metadata:
+                print(f"ERRO: Falha ao extrair metadados de {video_id}")
+                results.append({'success': False, 'id': video_id, 'error': 'Falha nos metadados'})
+                continue
+
+            print(f"Título: {metadata.get('title', 'Unknown')[:60]}...")
+
+            # Verifica skip
+            if self._should_skip(video_id):
+                print(f"SKIP: Vídeo já existe")
+                self.stats['skipped'] += 1
+                results.append({'success': True, 'skipped': True, 'id': video_id})
+                continue
+
+            # Cria pasta do vídeo
+            video_folder = self.base_path / f"video_{video_id}"
+            ensure_path_exists(video_folder)
+
+            # Baixa áudio
+            result = self._download_audio(video_url, video_id, video_folder, metadata)
+            results.append(result)
+
+            # Delay entre downloads
+            if i < len(video_ids) and result.get('success') and delay > 0:
+                print(f"Aguardando {delay}s...")
+                time.sleep(delay)
+
+        return results
+
+    def _should_skip(self, video_id: str) -> bool:
+        """
+        Verifica se deve pular download (pasta existe OU ID no CSV)
+
+        Args:
+            video_id: ID do vídeo
+
+        Returns:
+            True se deve pular
+        """
+        # Verifica pasta
+        video_folder = self.base_path / f"video_{video_id}"
+        if video_folder.exists():
+            audio_file = video_folder / f"{video_id}.{self.audio_format}"
+            if audio_file.exists():
+                return True
+
+        # Verifica CSV
+        if self.metadata_manager._id_exists(video_id):
+            return True
+
+        return False
+
     def _extract_video_ids(self, url: str) -> List[str]:
         """
-        Extrai lista de IDs de vídeos de uma playlist/canal
-        
+        Extrai lista de IDs de vídeos de playlist/canal
+
         Args:
-            url: URL da coleção
-            
+            url: URL da playlist ou canal
+
         Returns:
             Lista de video IDs
         """
@@ -272,24 +307,25 @@ class YouTubeDownloader:
             'yt-dlp',
             '--flat-playlist',
             '--print', 'id',
-            '--quiet',
+            '--no-warnings',
             url
         ]
-        
+
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=60)
             video_ids = [line.strip() for line in result.stdout.split('\n') if line.strip()]
             return video_ids
-        except subprocess.CalledProcessError:
+        except Exception as e:
+            print(f"Erro ao extrair IDs: {e}")
             return []
-    
+
     def _extract_metadata(self, url: str) -> Optional[Dict]:
         """
-        Extrai metadados do video usando yt-dlp
-        
+        Extrai os 9 campos necessários de metadados
+
         Args:
-            url: URL do video
-            
+            url: URL do vídeo
+
         Returns:
             Dict com metadados ou None se falhar
         """
@@ -297,65 +333,141 @@ class YouTubeDownloader:
             'yt-dlp',
             '--dump-json',
             '--no-warnings',
+            '--no-playlist',
             url
         ]
-        
+
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            metadata = json.loads(result.stdout)
-            
-            return {
-                'id': metadata.get('id'),
-                'title': metadata.get('title', 'Unknown'),
-                'duration': metadata.get('duration', 0),
-                'uploader': metadata.get('uploader', 'Unknown'),
-                'upload_date': metadata.get('upload_date', '')
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
+            data = json.loads(result.stdout)
+
+            # Extrai apenas os 9 campos necessários
+            metadata = {
+                'id': data.get('id', ''),
+                'title': data.get('title', ''),
+                'duration': data.get('duration', 0),
+                'upload_date': data.get('upload_date', ''),
+                'uploader': data.get('uploader', ''),
+                'uploader_id': data.get('uploader_id', ''),
+                'view_count': data.get('view_count', 0),
+                'like_count': data.get('like_count', 0),
+                'comment_count': data.get('comment_count', 0)
             }
+
+            return metadata
+
         except Exception as e:
-            print(f"Aviso: Nao foi possivel extrair metadados: {e}")
+            print(f"Erro ao extrair metadados: {e}")
             return None
-    
-    def _build_ytdlp_command(self, url: str, output_path: Path, video_id: str) -> List[str]:
+
+    def _download_audio(
+        self,
+        url: str,
+        video_id: str,
+        output_folder: Path,
+        metadata: Dict
+    ) -> Dict:
         """
-        Constrói comando yt-dlp
-        
+        Baixa áudio do vídeo
+
         Args:
             url: URL do vídeo
-            output_path: Pasta de destino
             video_id: ID do vídeo
-            
+            output_folder: Pasta de destino
+            metadata: Metadados do vídeo
+
         Returns:
-            Lista de argumentos do comando
+            Dict com resultado
         """
+        self.stats['total_attempted'] += 1
+
+        # Arquivo de saída
+        audio_file = output_folder / f"{video_id}.{self.audio_format}"
+
+        # Constrói comando
         cmd = [
             'yt-dlp',
             '-x',  # Extrair áudio
-            '--audio-format', self.config.AUDIO_FORMAT,
+            '--audio-format', self.audio_format,
+            '--output', str(audio_file).replace(f'.{self.audio_format}', '.%(ext)s'),
+            '--no-playlist',
+            '--no-warnings'
         ]
-        
+
         # Qualidade
-        if self.config.AUDIO_QUALITY > 0:
-            cmd.extend(['--audio-quality', str(self.config.AUDIO_QUALITY)])
-        
-        # Output
-        cmd.extend([
-            '--output', str(output_path / f"{video_id}.%(ext)s"),
-            '--quiet',
-            '--no-warnings',
-        ])
-        
+        if self.audio_quality > 0:
+            cmd.extend(['--audio-quality', str(self.audio_quality)])
+
         # Filtros de duração
-        if self.config.MIN_DURATION > 0:
-            cmd.extend(['--match-filter', f'duration >= {self.config.MIN_DURATION}'])
-        
-        if self.config.MAX_DURATION > 0:
-            cmd.extend(['--match-filter', f'duration <= {self.config.MAX_DURATION}'])
-        
+        if self.min_duration > 0:
+            cmd.extend(['--match-filter', f'duration >= {self.min_duration}'])
+        if self.max_duration > 0:
+            cmd.extend(['--match-filter', f'duration <= {self.max_duration}'])
+
         # URL
         cmd.append(url)
-        
-        return cmd
-    
+
+        try:
+            print("Baixando áudio...")
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=600  # 10 minutos timeout
+            )
+
+            if audio_file.exists():
+                file_size = audio_file.stat().st_size
+                print(f"Concluído: {file_size / 1024 / 1024:.2f} MB")
+
+                self.stats['successful'] += 1
+
+                # Prepara resultado com metadados
+                result_data = metadata.copy()
+                result_data['success'] = True
+                result_data['file'] = str(audio_file)
+                result_data['size'] = file_size
+
+                return result_data
+
+            else:
+                print("ERRO: Arquivo não foi criado")
+                self.stats['failed'] += 1
+                return {
+                    'success': False,
+                    'id': video_id,
+                    'error': 'Arquivo não criado'
+                }
+
+        except subprocess.TimeoutExpired:
+            print("ERRO: Timeout no download")
+            self.stats['failed'] += 1
+            return {
+                'success': False,
+                'id': video_id,
+                'error': 'Timeout'
+            }
+
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr if e.stderr else str(e)
+            print(f"ERRO: {error_msg}")
+            self.stats['failed'] += 1
+            return {
+                'success': False,
+                'id': video_id,
+                'error': error_msg
+            }
+
+        except Exception as e:
+            print(f"ERRO: {str(e)}")
+            self.stats['failed'] += 1
+            return {
+                'success': False,
+                'id': video_id,
+                'error': str(e)
+            }
+
     def get_stats(self) -> Dict:
         """Retorna estatísticas de download"""
         return self.stats.copy()
@@ -365,4 +477,4 @@ if __name__ == "__main__":
     # Teste básico
     downloader = YouTubeDownloader()
     print("YouTubeDownloader inicializado")
-    print(f"Config válida: {Config.validate()['valid']}")
+    print(f"Pasta base: {downloader.base_path}")

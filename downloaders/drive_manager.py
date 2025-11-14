@@ -25,14 +25,16 @@ class DriveManager:
     Lida com logs, verificação de espaço e estrutura de pastas
     """
     
-    def __init__(self, config: Config = None):
+    def __init__(self, config: Config = None, folder_name: str = None):
         """
         Inicializa o gerenciador
-        
+
         Args:
             config: Configurações customizadas
+            folder_name: Nome customizado da pasta base (usa Config.BASE_FOLDER se None)
         """
         self.config = config or Config()
+        self.folder_name = folder_name or self.config.BASE_FOLDER
         self.drive_mounted = False
         
     def mount_drive(self) -> bool:
@@ -70,13 +72,13 @@ class DriveManager:
     def setup_folder_structure(self) -> bool:
         """
         Cria estrutura de pastas base no Drive
-        
+
         Returns:
             True se criado com sucesso
         """
         try:
-            base_path = self.config.get_base_path()
-            log_path = self.config.get_log_path()
+            base_path = self.config.get_base_path(self.folder_name)
+            log_path = base_path / self.config.LOG_FOLDER
             
             ensure_path_exists(base_path)
             ensure_path_exists(log_path)
@@ -125,18 +127,19 @@ class DriveManager:
     def log_download(self, log_data: Dict) -> bool:
         """
         Salva log de download no Drive
-        
+
         Args:
             log_data: Dados do download para logar
-            
+
         Returns:
             True se salvou com sucesso
         """
         if not self.config.ENABLE_FILE_LOG:
             return True
-        
+
         try:
-            log_path = self.config.get_log_path()
+            base_path = self.config.get_base_path(self.folder_name)
+            log_path = base_path / self.config.LOG_FOLDER
             log_file = log_path / f"download_{get_date_string()}.log"
             
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -159,18 +162,19 @@ class DriveManager:
     def log_error(self, error_data: Dict) -> bool:
         """
         Salva log de erro no Drive
-        
+
         Args:
             error_data: Dados do erro
-            
+
         Returns:
             True se salvou com sucesso
         """
         if not self.config.ENABLE_FILE_LOG:
             return True
-        
+
         try:
-            log_path = self.config.get_log_path()
+            base_path = self.config.get_base_path(self.folder_name)
+            log_path = base_path / self.config.LOG_FOLDER
             error_file = log_path / f"errors_{get_date_string()}.log"
             
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -192,12 +196,12 @@ class DriveManager:
     def get_download_summary(self) -> Dict:
         """
         Gera resumo dos downloads no Drive
-        
+
         Returns:
             Dict com estatísticas
         """
         try:
-            base_path = self.config.get_base_path()
+            base_path = self.config.get_base_path(self.folder_name)
             
             if not base_path.exists():
                 return {'available': False, 'error': 'Pasta base não existe'}
@@ -245,12 +249,12 @@ class DriveManager:
     def cleanup_empty_folders(self) -> int:
         """
         Remove pastas vazias da estrutura
-        
+
         Returns:
             Número de pastas removidas
         """
         try:
-            base_path = self.config.get_base_path()
+            base_path = self.config.get_base_path(self.folder_name)
             removed = 0
             
             for item in base_path.rglob('*'):

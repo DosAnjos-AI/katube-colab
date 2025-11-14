@@ -93,9 +93,18 @@ class Config:
     # ========================================================================
     
     @classmethod
-    def get_base_path(cls) -> Path:
-        """Retorna o caminho completo da pasta base de downloads"""
-        return Path(cls.DRIVE_ROOT) / cls.BASE_FOLDER
+    def get_base_path(cls, folder_name: Optional[str] = None) -> Path:
+        """
+        Retorna o caminho completo da pasta base de downloads
+
+        Args:
+            folder_name: Nome customizado da pasta (usa BASE_FOLDER se None)
+
+        Returns:
+            Path completo para a pasta base
+        """
+        folder = folder_name or cls.BASE_FOLDER
+        return Path(cls.DRIVE_ROOT) / folder
     
     @classmethod
     def get_log_path(cls) -> Path:
